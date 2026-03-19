@@ -30,9 +30,7 @@ def get_level_exp(page):
 if __name__ == "__main__":
     print("程序开始运行")
 
-    # 通知信息
     notice = ''
-
 
     co = ChromiumOptions().headless()
     chromium_path = shutil.which("chromium-browser")
@@ -47,12 +45,8 @@ if __name__ == "__main__":
     page.refresh()
     page._wait_loaded(15)
 
-    import os
+    # 创建调试目录
     os.makedirs("debug", exist_ok=True)
-    safe_name = name.replace("/", "_")
-    page.get_screenshot(path=f"debug/{safe_name}.png")
-    with open(f"debug/{safe_name}.html", "w", encoding="utf-8") as f:
-        f.write(page.html)
 
     over = False
     yeshu = 0
@@ -61,7 +55,6 @@ if __name__ == "__main__":
     while not over:
         yeshu += 1
         page.get(f"https://tieba.baidu.com/i/i/forum?&pn={yeshu}")
-
         page._wait_loaded(15)
 
         for i in range(2, 22):
@@ -79,11 +72,17 @@ if __name__ == "__main__":
                 over = True
                 break
 
+            # 访问贴吧页面
             page.get(tieba_url)
-            
+            page._wait_loaded(15)
 
-            page.wait.eles_loaded('xpath://*[@id="signstar_wrapper"]/a/span[1]',timeout=30)
+            # 调试：保存截图和HTML（name已定义，位置正确）
+            safe_name = name.replace("/", "_")
+            page.get_screenshot(path=f"debug/{safe_name}.png")
+            with open(f"debug/{safe_name}.html", "w", encoding="utf-8") as f:
+                f.write(page.html)
 
+            page.wait.eles_loaded('xpath://*[@id="signstar_wrapper"]/a/span[1]', timeout=30)
 
             # 判断是否签到
             is_sign_ele = page.ele('xpath://*[@id="signstar_wrapper"]/a/span[1]')
@@ -95,15 +94,14 @@ if __name__ == "__main__":
                 notice += msg + '\n\n'
                 print("-------------------------------------------------")
             else:
-                page.wait.eles_loaded('xpath://a[@class="j_signbtn sign_btn_bright j_cansign"]',timeout=30)
+                page.wait.eles_loaded('xpath://a[@class="j_signbtn sign_btn_bright j_cansign"]', timeout=30)
                 sign_ele = page.ele('xpath://a[@class="j_signbtn sign_btn_bright j_cansign"]')
                 if sign_ele:
                     sign_ele.click()
-                    time.sleep(1)  # 等待签到动作完成
+                    time.sleep(1)
                     sign_ele.click()
-                    time.sleep(1)  # 等待签到动作完成
+                    time.sleep(1)
                     page.refresh()
-
                     page._wait_loaded(15)
 
                     level, exp = get_level_exp(page)
@@ -125,8 +123,8 @@ if __name__ == "__main__":
         api = f'https://sc.ftqq.com/{os.environ["SendKey"]}.send'
         title = u"贴吧签到信息"
         data = {
-        "text":title,
-        "desp":notice
+            "text": title,
+            "desp": notice
         }
         try:
             req = requests.post(api, data=data, timeout=60)
