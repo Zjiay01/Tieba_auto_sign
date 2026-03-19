@@ -47,6 +47,12 @@ if __name__ == "__main__":
     page.refresh()
     page._wait_loaded(15)
 
+    import os
+    os.makedirs("debug", exist_ok=True)
+    safe_name = name.replace("/", "_")
+    page.get_screenshot(path=f"debug/{safe_name}.png")
+    with open(f"debug/{safe_name}.html", "w", encoding="utf-8") as f:
+        f.write(page.html)
 
     over = False
     yeshu = 0
