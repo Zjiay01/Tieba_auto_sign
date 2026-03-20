@@ -6,48 +6,80 @@ import time
 import requests
 
 def read_cookie():
-    """读取 cookie，优先从环境变量读取"""
     if "TIEBA_COOKIES" in os.environ:
         return json.loads(os.environ["TIEBA_COOKIES"])
     else:
-        print("贴吧Cookie未配置！详细请参考教程！")
+        print("贴吧Cookie未配置！")
         return []
 
-def get_level_exp(page):
-    """获取等级和经验，如果找不到返回'未知'"""
-    try:
-        level_ele = page.ele('xpath://*[@id="pagelet_aside/pagelet/my_tieba"]/div/div[1]/div[3]/div[1]/a/div[2]').text
-        level = level_ele if level_ele else "未知"
-    except:
-        level = "未知"
-    try:
-        exp_ele = page.ele('xpath://*[@id="pagelet_aside/pagelet/my_tieba"]/div/div[1]/div[3]/div[2]/a/div[2]/span[1]').text
-        exp = exp_ele if exp_ele else "未知"
-    except:
-        exp = "未知"
-    return level, exp
+def get_cookie_dict():
+    """把cookie列表转成dict，用于requests"""
+    cookies = read_cookie()
+    return {c['name']: c['value'] for c in cookies}
+
+def get_tbs(cookie_dict):
+    """获取签到必需的tbs参数"""
+    resp = requests.get(
+        "https://tieba.baidu.com/dc/common/tbs",
+        cookies=cookie_dict,
+        headers={"User-Agent": "Mozilla/5.0"}
+    )
+    return resp.json().get("tbs", "")
+
+def sign_forum(kw, tbs, cookie_dict):
+    """直接调用签到API"""
+    resp = requests.post(
+        "https://tieba.baidu.com/sign/add",
+        data={"kw": kw, "tbs": tbs, "_client_type": "2"},
+        cookies=cookie_dict,
+        headers={
+            "User-Agent": "Mozilla/5.0",
+            "Referer": f"https://tieba.baidu.com/f?kw={kw}",
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+    )
+    return resp.json()
 
 if __name__ == "__main__":
     print("程序开始运行")
-
     notice = ''
 
+    cookie_dict = get_cookie_dict()
+    tbs = get_tbs(cookie_dict)
+    if not tbs:
+        print("获取tbs失败，请检查Cookie是否有效")
+        exit(1)
+    print(f"tbs获取成功：{tbs}")
+
+    # 用requests获取关注的贴吧列表
+    count = 0
+    yeshu = 0
+    over = False
+
+    while not over:
+        yeshu += 1
+        resp = requests.get(
+            f"https://tieba.baidu.com/i/i/forum?pn={yeshu}",
+            cookies=cookie_dict,
+            headers={"User-Agent": "Mozilla/5.0"}
+        )
+        # 解析贴吧列表（仍需要浏览器，见下面备注）
+        # 这里保留浏览器方式获取列表，只替换签到部分
+        break
+
+    # ---- 如果还想用浏览器获取列表，只替换签到部分如下 ----
     co = ChromiumOptions().headless()
     chromium_path = shutil.which("chromium-browser")
     if chromium_path:
         co.set_browser_path(chromium_path)
 
     page = ChromiumPage(co)
-
-    url = "https://tieba.baidu.com/"
-    page.get(url)
+    page.get("https://tieba.baidu.com/")
     page.set.cookies(read_cookie())
     page.refresh()
     page._wait_loaded(15)
 
-    # 创建调试目录
     os.makedirs("debug", exist_ok=True)
-
     over = False
     yeshu = 0
     count = 0
@@ -65,74 +97,52 @@ if __name__ == "__main__":
                 tieba_url = element.attr("href")
                 name = element.attr("title")
             except:
-                msg = f"全部爬取完成！本次总共签到 {count} 个吧..."
+                msg = f"全部完成！本次总共签到 {count} 个吧..."
                 print(msg)
                 notice += msg + '\n\n'
                 page.close()
                 over = True
                 break
 
-            # 访问贴吧页面
-            page.get(tieba_url)
-            page._wait_loaded(15)
+            # 从URL提取吧名（kw参数）
+            import re
+            kw_match = re.search(r'[?&]kw=([^&]+)', tieba_url)
+            if not kw_match:
+                # 尝试从URL路径提取
+                kw_match = re.search(r'/f/([^/?]+)', tieba_url)
 
-            # 调试：保存截图和HTML（name已定义，位置正确）
-            safe_name = name.replace("/", "_")
-            page.get_screenshot(path=f"debug/{safe_name}.png")
-            with open(f"debug/{safe_name}.html", "w", encoding="utf-8") as f:
-                f.write(page.html)
+            if kw_match:
+                kw = requests.utils.unquote(kw_match.group(1))
+                result = sign_forum(kw, tbs, cookie_dict)
+                error_code = result.get("error_code", -1)
 
-            page.wait.eles_loaded('xpath://*[@id="signstar_wrapper"]/a/span[1]', timeout=30)
-
-            # 判断是否签到
-            is_sign_ele = page.ele('xpath://*[@id="signstar_wrapper"]/a/span[1]')
-            is_sign = is_sign_ele.text if is_sign_ele else ""
-            if is_sign.startswith("连续"):
-                level, exp = get_level_exp(page)
-                msg = f"{name}吧：已签到过！等级：{level}，经验：{exp}"
-                print(msg)
-                notice += msg + '\n\n'
-                print("-------------------------------------------------")
-            else:
-                page.wait.eles_loaded('xpath://a[@class="j_signbtn sign_btn_bright j_cansign"]', timeout=30)
-                sign_ele = page.ele('xpath://a[@class="j_signbtn sign_btn_bright j_cansign"]')
-                if sign_ele:
-                    sign_ele.click()
-                    time.sleep(1)
-                    sign_ele.click()
-                    time.sleep(1)
-                    page.refresh()
-                    page._wait_loaded(15)
-
-                    level, exp = get_level_exp(page)
-                    msg = f"{name}吧：成功！等级：{level}，经验：{exp}"
+                if error_code == 0:
+                    msg = f"{name}吧：签到成功！"
                     print(msg)
-                    notice += msg + '\n\n'
-                    print("-------------------------------------------------")
+                elif error_code == 160002:
+                    msg = f"{name}吧：今日已签到"
+                    print(msg)
                 else:
-                    msg = f"错误！{name}吧：找不到签到按钮，可能页面结构变了"
+                    msg = f"{name}吧：签到结果 code={error_code}, msg={result.get('error_msg','')}"
                     print(msg)
-                    notice += msg + '\n\n'
-                    print("-------------------------------------------------")
+            else:
+                msg = f"{name}吧：无法解析吧名，跳过"
+                print(msg)
 
+            notice += msg + '\n\n'
+            print("-------------------------------------------------")
             count += 1
-            page.back()
-            page._wait_loaded(10)
+            time.sleep(0.5)  # 避免请求太快
 
     if "SendKey" in os.environ:
         api = f'https://sc.ftqq.com/{os.environ["SendKey"]}.send'
-        title = u"贴吧签到信息"
-        data = {
-            "text": title,
-            "desp": notice
-        }
+        data = {"text": "贴吧签到信息", "desp": notice}
         try:
             req = requests.post(api, data=data, timeout=60)
             if req.status_code == 200:
                 print("Server酱通知发送成功")
             else:
                 print(f"通知失败，状态码：{req.status_code}")
-                print(api)
         except Exception as e:
             print(f"通知发送异常：{e}")
     else:
