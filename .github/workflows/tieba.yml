@@ -34,11 +34,3 @@ jobs:
           SendKey: ${{ secrets.SendKey }}
         run: |
           python run_tieba_qiandao.py
-          
-      - name: Upload debug files        
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: tieba-debug
-          path: debug/
-          retention-days: 1
